@@ -36,9 +36,9 @@ exports.handler = async (event) => {
 
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     const text = await readText(res);
-    if (isInterstitial(res, text)) {
+    if (isInterstitial(res, text) || /<!doctype html|<html/i.test(text)) {
       await slot.release();
-      return json(502, { error: "The operator's tunnel is showing a verification page. Ask the operator to click through it or upgrade ngrok." });
+      return json(502, { error: "The operator's tunnel is unreachable (ngrok verification/timeout page). The operator's PC may be offline or the tunnel expired." });
     }
     if (!res.ok) {
       await slot.release();
@@ -50,7 +50,12 @@ exports.handler = async (event) => {
       const obj = JSON.parse(text);
       reply = obj.response || "";
     } catch {
-      reply = text;
+      await slot.release();
+      return json(502, { error: "The operator's local model returned an unexpected response. The PC may be offline." });
+    }
+    if (!reply) {
+      await slot.release();
+      return json(502, { error: "The operator's local model returned an empty reply. The PC may be offline." });
     }
     await slot.release();
     return json(200, { response: reply });
