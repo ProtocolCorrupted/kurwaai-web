@@ -1,0 +1,12 @@
+{
+  "name": "kurwaai-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KurwaAI — free public AI chat (local Qwen) + image gen (local Flux), with paid Claude tiers. Auth + limits via Netlify Blobs, model traffic proxied to operator's tunneled Ollama/ComfyUI.",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "stripe": "^14.0.0"
+  }
+}
