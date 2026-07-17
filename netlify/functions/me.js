@@ -16,12 +16,12 @@ exports.handler = async (event) => {
   const rec = await store.get(`limits:${session.username}`, { type: "json" });
   const localUsed = rec && rec.date === today ? rec.msgCount : 0;
 
-  let claude = null;
+  let claudeInfo = null;
   if (tier.claude) {
     const cRec = await store.get(`claude:${session.username}`, { type: "json" });
     const now = Date.now();
     const fresh = cRec && now - (cRec.windowStart || 0) < tier.claude.windowMs;
-    claude = {
+    claudeInfo = {
       models: claude.modelsForTier(tierName),
       msgMax: tier.claude.msgMax,
       msgUsed: fresh ? cRec.msgCount : 0,
@@ -44,6 +44,6 @@ exports.handler = async (event) => {
       rpmMax: tier.local.rpmMax,
       queueMax: tier.local.queueMax,
     },
-    claude,
+    claude: claudeInfo,
   });
 };
