@@ -2,3 +2,7 @@ node_modules/
 .env
 .netlify/
 *.log
+
+# local dev only
+.env
+local-dev.js
