@@ -29,6 +29,7 @@ exports.handler = async (event) => {
         model: MODELS.ollamaChat,
         prompt: message,
         stream: true,
+        keep_alive: -1,
       }),
       signal: AbortSignal.timeout(120000),
     });
