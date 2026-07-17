@@ -1,6 +1,12 @@
 const jwt = require("jsonwebtoken");
 const { getStore } = require("@netlify/blobs");
 
+// Netlify's newer function runtime exposes the auth token as NETLIFY_FUNCTIONS_TOKEN
+// (not NETLIFY_BLOBS_TOKEN). @netlify/blobs looks for NETLIFY_BLOBS_TOKEN, so bridge it.
+if (!process.env.NETLIFY_BLOBS_TOKEN && process.env.NETLIFY_FUNCTIONS_TOKEN) {
+  process.env.NETLIFY_BLOBS_TOKEN = process.env.NETLIFY_FUNCTIONS_TOKEN;
+}
+
 const SECRET = process.env.JWT_SECRET || "change-me-in-netlify-env-vars";
 const COOKIE_NAME = "kurwaai_session";
 
