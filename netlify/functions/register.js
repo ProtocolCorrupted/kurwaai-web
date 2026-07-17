@@ -1,5 +1,5 @@
 const bcrypt = require("bcryptjs");
-const { usersStore, signSession, setCookie, json } = require("./_auth");
+const { usersStore, signSession, setCookie, json, ADMIN_USERNAME } = require("./_auth");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -17,10 +17,6 @@ exports.handler = async (event) => {
   if (!/^[a-z0-9_]{3,20}$/.test(username)) {
     return json(400, { error: "Username must be 3-20 chars: letters, numbers, underscore." });
   }
-  if (password.length < 8) {
-    return json(400, { error: "Password must be at least 8 characters." });
-  }
-
   const store = usersStore();
   const key = `user:${username}`;
 
@@ -29,12 +25,17 @@ exports.handler = async (event) => {
     return json(409, { error: "Username already taken." });
   }
 
+  // The operator's reserved account can only be created once (bootstrap).
+  // After it exists, the name is illegal for everyone else.
+  const isAdminBootstrap = username === ADMIN_USERNAME;
+
   const passwordHash = await bcrypt.hash(password, 10);
 
   await store.setJSON(key, {
     username,
     passwordHash,
-    tier: "free",
+    tier: isAdminBootstrap ? "max" : "free",
+    isAdmin: isAdminBootstrap,
     createdAt: new Date().toISOString(),
   });
 

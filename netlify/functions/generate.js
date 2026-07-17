@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { verifySession, acquireLocalSlot, COMFY_URL, json } = require("./_auth");
+const { verifySession, acquireLocalSlot, COMFY_URL, FEATURES, json } = require("./_auth");
 
 // Load the bundled Flux2-Klein text-to-image workflow.
 const WORKFLOW = JSON.parse(
@@ -23,6 +23,7 @@ exports.handler = async (event) => {
   const prompt = (body.prompt || "").toString().slice(0, 2000);
   if (!prompt.trim()) return json(400, { error: "Empty prompt." });
 
+  if (!FEATURES.imageGen) return json(503, { error: "Image generation is temporarily disabled by the operator. Chat is available." });
   if (!COMFY_URL) return json(503, { error: "ComfyUI endpoint is not configured by the operator yet." });
 
   const slot = await acquireLocalSlot(session.username);

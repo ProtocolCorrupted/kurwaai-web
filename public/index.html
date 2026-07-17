@@ -91,7 +91,12 @@
   .msg.bot .who{color:var(--green-dim);}
   .msg.bot.claude .who{color:var(--blue);}
   .msg img{max-width:100%; border-radius:8px; border:1px solid var(--line); margin-top:8px;}
-  .msg pre{background:#070907; border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow-x:auto; margin:10px 0; font-size:13px;}
+  .msg pre{background:#070907; border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow-x:auto; margin:10px 0; font-size:13px; position:relative;}
+  .msg pre .copy-btn{position:absolute; top:8px; right:8px; font-family:'JetBrains Mono',monospace; font-size:10px; padding:3px 8px; border-radius:4px; border:1px solid var(--line); background:var(--bg-panel); color:var(--text-dim); cursor:pointer; opacity:0; transition:opacity .15s;}
+  .msg pre:hover .copy-btn{opacity:1;}
+  .msg pre .copy-btn:hover{color:var(--green); border-color:var(--green-dim);}
+  .stop-btn{font-family:'JetBrains Mono',monospace; font-size:11px; padding:6px 12px; border-radius:20px; border:1px solid var(--red); background:none; color:var(--red); cursor:pointer; margin-left:auto;}
+  .stop-btn:hover{background:rgba(255,92,92,.1);}
   .msg pre::-webkit-scrollbar{height:8px;}
   .msg pre::-webkit-scrollbar-thumb{background:var(--line); border-radius:6px;}
   .msg code{font-family:'JetBrains Mono',monospace; font-size:.92em;}
@@ -177,6 +182,7 @@
         </ul>
       </div>
     </div>
+    <p class="hint" style="margin-top:18px; text-align:center;">Want Plus or Max? <a id="discord-link" href="https://disboard.org/server/1504909141095874662" target="_blank" rel="noopener" style="color:var(--blue);">Message the operator on Discord</a> — pay, then perks are granted manually.</p>
   </section>
 </div>
 
@@ -212,7 +218,7 @@
     <div class="panel-body">
       <div class="mode-toggle" id="mode-toggle">
         <button class="mode-btn active" data-mode="chat">!chat</button>
-        <button class="mode-btn" data-mode="generate">!generate</button>
+        <button class="mode-btn" data-mode="generate" id="mode-generate">!generate</button>
         <button class="mode-btn locked" data-mode="claude" id="mode-claude">!claude 🔒</button>
         <select class="model-select" id="claude-model" style="display:none;"></select>
       </div>
@@ -220,14 +226,39 @@
       <div class="chat-input-row">
         <input id="chat-input" placeholder="Type a message…">
         <button class="btn btn-primary" id="chat-send">Send</button>
+        <button class="stop-btn" id="chat-stop" style="display:none;">■ stop</button>
       </div>
       <p class="hint" id="mode-hint">!chat → local Qwen · !generate → local Flux image · !claude → Claude (Plus/Max)</p>
+    </div>
+  </div>
+
+  <div class="panel" id="admin-panel" style="display:none;">
+    <div class="panel-head">
+      <h3>Admin · Grant Perks</h3>
+      <span class="mono" style="font-size:11px; color:var(--amber);">operator only</span>
+    </div>
+    <div class="panel-body">
+      <div class="endpoint-row">
+        <label>Username</label>
+        <input id="admin-user" placeholder="target username">
+      </div>
+      <div class="endpoint-row">
+        <label>Tier</label>
+        <select id="admin-tier" style="background:var(--bg); border:1px solid var(--line); color:var(--text); padding:9px 10px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:12.5px;">
+          <option value="free">free</option>
+          <option value="plus">plus</option>
+          <option value="max">max</option>
+        </select>
+      </div>
+      <button class="btn btn-ghost" id="admin-grant">Grant perks</button>
+      <p class="hint" id="admin-msg"></p>
     </div>
   </div>
 </div>
 
 <footer>
   <p>KurwaAI · free AI for everyone · powered by community hardware</p>
+  <p><a href="https://disboard.org/server/1504909141095874662" target="_blank" rel="noopener" style="color:var(--blue); text-decoration:none;">Join our Discord</a></p>
 </footer>
 
 <script>
@@ -236,6 +267,7 @@
   let currentUser = null;
   let mode = "chat";
   let busy = false;
+  let currentAbort = null;
 
   // ---------- view switching ----------
   function showLanding(){
@@ -256,10 +288,11 @@
     $("auth-screen").style.display = "none";
     $("app").classList.add("visible");
     $("nav-badge").style.display = "inline-block";
-    $("nav-badge").textContent = user.tierLabel;
+    $("nav-badge").textContent = user.tierLabel + (user.isAdmin ? " · admin" : "");
     $("logged-in-as") && ($("logged-in-as").textContent = "@" + user.username);
     renderLimits(user);
     setupModes(user);
+    if(user.isAdmin) showAdmin();
     $("navlinks").innerHTML = `<button id="nav-logout">log out</button>`;
     $("nav-logout").onclick = logout;
   }
@@ -275,35 +308,50 @@
   }
 
   function setupModes(user){
-    const claudeUnlocked = !!user.claude;
+    const feats = user.features || {};
+    // Hide image gen if disabled by operator.
+    if(!feats.imageGen){ $("mode-generate").style.display = "none"; }
+    // Claude button: visible only if feature enabled; locked unless user has a paid tier.
     const claudeBtn = $("mode-claude");
     const sel = $("claude-model");
-    if(claudeUnlocked){
-      claudeBtn.classList.remove("locked");
-      claudeBtn.textContent = "!claude";
-      sel.innerHTML = user.claude.models.map(m=>`<option value="${m.id}">${m.label}</option>`).join("");
+    if(!feats.claude){
+      claudeBtn.style.display = "none";
+    } else {
+      const claudeUnlocked = !!user.claude;
+      if(claudeUnlocked){
+        claudeBtn.classList.remove("locked");
+        claudeBtn.textContent = "!claude";
+        sel.innerHTML = user.claude.models.map(m=>`<option value="${m.id}">${m.label}</option>`).join("");
+      }
+      claudeBtn.onclick = ()=>{
+        if(!claudeUnlocked){ promptUpgrade(); return; }
+        setMode("claude");
+      };
     }
-    claudeBtn.onclick = ()=>{
-      if(!claudeUnlocked){ promptUpgrade(); return; }
-      setMode("claude");
-    };
   }
 
   function promptUpgrade(){
-    const tier = prompt("Claude requires a paid plan.\nType 'plus' or 'max' to start checkout:", "plus");
-    if(tier === "plus" || tier === "max") startUpgrade(tier);
+    const invite = (currentUser && currentUser.discordInvite) || "https://disboard.org/server/1504909141095874662";
+    alert("Claude requires a paid plan.\n\nMessage me on Discord to upgrade — I'll grant your perks manually after payment:\n\n" + invite + "\n\n(your Discord username will be needed)");
+    window.open(invite, "_blank");
   }
 
-  async function startUpgrade(tier){
-    try{
-      const res = await fetch(`/api/stripe-checkout`, {
-        method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
-        body: JSON.stringify({tier})
-      });
-      const data = await res.json();
-      if(data.url){ window.location.href = data.url; }
-      else { alert(data.error || "Could not start upgrade."); }
-    }catch(e){ alert("Upgrade failed."); }
+  function showAdmin(){
+    $("admin-panel").style.display = "block";
+    $("admin-grant").onclick = async () => {
+      const username = $("admin-user").value.trim();
+      const tier = $("admin-tier").value;
+      if(!username){ $("admin-msg").textContent = "Enter a username."; return; }
+      $("admin-msg").textContent = "Granting…";
+      try{
+        const res = await fetch("/api/admin-set-tier", {
+          method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
+          body: JSON.stringify({username, tier})
+        });
+        const data = await res.json();
+        $("admin-msg").textContent = res.ok ? `Granted ${tier} to @${username}.` : (data.error || "Failed.");
+      }catch(e){ $("admin-msg").textContent = "Network error."; }
+    };
   }
 
   // ---------- auth ----------
@@ -392,7 +440,7 @@
         let code = ""; i++;
         while(i < lines.length && !/^```\s*$/.test(lines[i])){ code += lines[i] + "\n"; i++; }
         i++; // skip closing ```
-        html += `<pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`;
+        html += `<pre><button class="copy-btn" type="button">copy</button><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`;
         continue;
       }
       if(/^\s*[-*]\s+/.test(line)){
@@ -439,6 +487,7 @@
     busy = state;
     $("chat-send").disabled = state;
     $("chat-input").disabled = state;
+    $("chat-stop").style.display = state ? "inline-block" : "none";
   }
   function setStatus(el, html){ el.querySelector(".bubble").innerHTML = html; }
   function showTyping(){
@@ -461,12 +510,13 @@
   async function doChat(text){
     const waiting = addMsg("bot", {html:`<span class="spinner"></span>queued for GPU…`});
     setBusy(true);
+    currentAbort = new AbortController();
     let acc = "";
     const bubble = waiting.querySelector(".bubble");
     try{
       const res = await fetch("/api/chat", {
         method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
-        body: JSON.stringify({message:text})
+        body: JSON.stringify({message:text}), signal: currentAbort.signal
       });
       if(!res.ok){
         const data = await res.json().catch(()=>({}));
@@ -503,42 +553,47 @@
       }
       bubble.innerHTML = renderMarkdown(acc);
     }catch(e){
-      bubble.textContent = "Network error. Try again.";
-    }finally{ setBusy(false); refreshLimits(); }
+      if(e.name === "AbortError"){ bubble.innerHTML = renderMarkdown(acc) + "\n\n_— stopped_"; }
+      else { bubble.textContent = "Network error. Try again."; }
+    }finally{ currentAbort = null; setBusy(false); refreshLimits(); }
   }
 
   async function doGenerate(text){
     const waiting = addMsg("bot", {html:`<span class="spinner"></span>queued for GPU…`});
     setBusy(true);
+    currentAbort = new AbortController();
     try{
       const res = await fetch("/api/generate", {
         method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
-        body: JSON.stringify({prompt:text})
+        body: JSON.stringify({prompt:text}), signal: currentAbort.signal
       });
       const data = await res.json();
       if(!res.ok){ setStatus(waiting, escapeHtml(data.error || "Error.")); return; }
       setStatus(waiting, "here you go:");
       addMsg("bot", {image:data.image});
     }catch(e){
-      setStatus(waiting, "Network error. Try again.");
-    }finally{ setBusy(false); refreshLimits(); }
+      if(e.name === "AbortError"){ setStatus(waiting, "— stopped"); }
+      else { setStatus(waiting, "Network error. Try again."); }
+    }finally{ currentAbort = null; setBusy(false); refreshLimits(); }
   }
 
   async function doClaude(text){
     const model = $("claude-model").value;
     const waiting = addMsg("bot", {html:`<span class="spinner"></span>thinking (${model})…`, claude:true});
     setBusy(true);
+    currentAbort = new AbortController();
     try{
       const res = await fetch("/api/claude", {
         method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
-        body: JSON.stringify({message:text, model})
+        body: JSON.stringify({message:text, model}), signal: currentAbort.signal
       });
       const data = await res.json();
       if(!res.ok){ setStatus(waiting, escapeHtml(data.error || "Error.")); return; }
       waiting.querySelector(".bubble").innerHTML = renderMarkdown(data.response || "(empty)");
     }catch(e){
-      setStatus(waiting, "Network error. Try again.");
-    }finally{ setBusy(false); refreshLimits(); }
+      if(e.name === "AbortError"){ setStatus(waiting, "— stopped"); }
+      else { setStatus(waiting, "Network error. Try again."); }
+    }finally{ currentAbort = null; setBusy(false); refreshLimits(); }
   }
 
   async function refreshLimits(){
@@ -550,6 +605,20 @@
 
   $("chat-send").onclick = send;
   $("chat-input").addEventListener("keydown", (e)=>{ if(e.key==="Enter") send(); });
+  $("chat-stop").onclick = () => { if(currentAbort) currentAbort.abort(); };
+
+  // Copy buttons on code blocks (event delegation).
+  $("chat-log").addEventListener("click", (e) => {
+    const btn = e.target.closest(".copy-btn");
+    if(!btn) return;
+    const code = btn.parentElement.querySelector("code");
+    if(code){
+      navigator.clipboard.writeText(code.textContent).then(() => {
+        const old = btn.textContent; btn.textContent = "copied";
+        setTimeout(() => (btn.textContent = old), 1200);
+      });
+    }
+  });
 
   // init
   loadSession();

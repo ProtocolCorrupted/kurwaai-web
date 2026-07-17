@@ -1,4 +1,4 @@
-const { usersStore, verifySession, json, getTier, getUserLimits } = require("./_auth");
+const { usersStore, verifySession, json, getTier, getUserLimits, FEATURES, DISCORD_INVITE } = require("./_auth");
 const claude = require("./claude");
 
 exports.handler = async (event) => {
@@ -35,6 +35,9 @@ exports.handler = async (event) => {
     username: user.username,
     tier: tierName,
     tierLabel: tier.label,
+    isAdmin: !!user.isAdmin,
+    discordInvite: DISCORD_INVITE,
+    features: { imageGen: FEATURES.imageGen, claude: FEATURES.claude },
     local: {
       dailyMsgMax: tier.local.dailyMsgMax,
       dailyMsgUsed: localUsed,

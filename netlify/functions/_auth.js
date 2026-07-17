@@ -14,9 +14,19 @@ if (IS_PRODUCTION && SECRET === "change-me-in-netlify-env-vars") {
 const OLLAMA_URL = (process.env.OLLAMA_URL || "").replace(/\/$/, "");
 const COMFY_URL = (process.env.COMFY_URL || "").replace(/\/$/, "");
 
+const DISCORD_INVITE = process.env.DISCORD_INVITE || "https://disboard.org/server/1504909141095874662";
+const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || "kurwaai").toLowerCase();
+
 // Shared model endpoints (operator's PC, exposed via tunnel).
 const MODELS = {
   ollamaChat: "gemma3:4b",
+};
+
+// Feature flags (operator toggles here). Image gen is OFF until a stronger GPU is available.
+// Claude is gated by user tier (Plus/Max), so it stays enabled by default.
+const FEATURES = {
+  imageGen: process.env.ENABLE_IMAGE_GEN === "true" || false, // default disabled
+  claude: process.env.ENABLE_CLAUDE === "true" || true,      // enabled; tier-gated
 };
 
 // Tier configuration. Limits are resolved from here so new tiers = config only.
@@ -209,10 +219,13 @@ module.exports = {
   OLLAMA_URL,
   COMFY_URL,
   MODELS,
+  DISCORD_INVITE,
+  ADMIN_USERNAME,
   TIERS,
   getTier,
   usersStore,
   limitsStore,
+  FEATURES,
   signSession,
   verifySession,
   setCookie,

@@ -1,4 +1,4 @@
-const { verifySession, checkClaudeQuota, consumeClaudeQuota, getUserTierConfig, getTier, json } = require("./_auth");
+const { verifySession, checkClaudeQuota, consumeClaudeQuota, getUserTierConfig, getTier, FEATURES, json } = require("./_auth");
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -16,6 +16,8 @@ exports.handler = async (event) => {
 
   const session = verifySession(event);
   if (!session) return json(401, { error: "Not logged in." });
+
+  if (!FEATURES.claude) return json(503, { error: "Claude access is not enabled by the operator yet." });
 
   let body;
   try {

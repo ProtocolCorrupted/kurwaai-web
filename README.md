@@ -42,11 +42,18 @@ JWT_SECRET            = <long random string>   # REQUIRED in production (fails c
 OLLAMA_URL            = https://xxxx.ngrok-free.app   # your Ollama tunnel
 COMFY_URL             = https://yyyy.ngrok-free.app   # your ComfyUI tunnel
 ANTHROPIC_API_KEY     = sk-ant-...                    # for Plus/Max Claude
-STRIPE_SECRET_KEY     = sk_live_...
-STRIPE_WEBHOOK_SECRET = whsec_...
-STRIPE_PRICE_PLUS     = price_...   # Stripe price ID for the Plus subscription
-STRIPE_PRICE_MAX      = price_...   # Stripe price ID for the Max subscription
+DISCORD_INVITE        = https://disboard.org/server/1504909141095874662  # shown to users for upgrades
+ADMIN_USERNAME        = kurwaai                       # reserved operator account name
 ```
+
+### Upgrades (no Stripe — Discord-based)
+Payments are handled manually. The operator's reserved account (`kurwaai` by default) gets
+admin + Max automatically on first registration. After someone pays via Discord, the operator
+opens the **Admin panel** in the app, types the user's username, picks a tier, and grants it.
+There is no automated billing.
+
+To enable image generation later, set `ENABLE_IMAGE_GEN=true`.
+Claude is gated by user tier and enabled by default.
 
 ## 3. Expose your local models
 
@@ -64,18 +71,7 @@ ngrok free URLs change every restart — update the env vars when they do (or us
 CORS: run Ollama with `OLLAMA_ORIGINS=*` and ComfyUI with `--enable-cors-header` so the
 functions (server-side) and, if needed, the browser can reach them.
 
-## 4. Stripe setup
-
-1. Create two **subscription** products in the Stripe dashboard (Plus, Max).
-2. Copy their **Price IDs** into `STRIPE_PRICE_PLUS` / `STRIPE_PRICE_MAX`.
-3. Add a webhook endpoint: `https://<your-site>/.netlify/functions/stripe-webhook`
-   (listen to `checkout.session.completed` and `customer.subscription.deleted`).
-   Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
-
-On a successful checkout, the webhook flips the user's `tier` to `plus`/`max`. On
-subscription cancellation, it reverts to `free`.
-
-## 5. Tiers & limits
+## 4. Tiers & limits
 
 | | Free | Plus | Max |
 |---|---|---|---|
