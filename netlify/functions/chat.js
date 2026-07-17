@@ -1,26 +1,39 @@
 const { verifySession, acquireLocalSlot, OLLAMA_URL, MODELS, json, readText, isInterstitial } = require("./_auth");
 
-// ngrok free tunnels intermittently return an HTML "Inactivity Timeout" /
-// verification page (ERR_NGROK_320) when the edge->agent link briefly drops.
-// Retry once after a short pause — the agent usually reconnects within ~1s.
+// ngrok free tunnels intermittently hang or return an HTML "Inactivity Timeout"
+// page (ERR_NGROK_320) when the edge->agent link briefly drops. Retry once
+// after a short pause. Use a manual timeout (Promise.race) because some runtimes
+// don't honour AbortSignal.timeout for hung TLS connections.
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timeout")), ms);
+    promise.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); }
+    );
+  });
+}
+
 async function tryGenerate(message) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 1200));
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
     let res;
     try {
-      res = await fetch(`${OLLAMA_URL}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Connection": "close" },
-        body: JSON.stringify({
-          model: MODELS.ollamaChat,
-          prompt: message,
-          stream: false,
-          keep_alive: -1,
+      res = await withTimeout(
+        fetch(`${OLLAMA_URL}/api/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Connection": "close" },
+          body: JSON.stringify({
+            model: MODELS.ollamaChat,
+            prompt: message,
+            stream: false,
+            keep_alive: -1,
+          }),
         }),
-        signal: AbortSignal.timeout(20000),
-      });
+        12000
+      );
     } catch {
-      continue; // network error -> retry
+      continue; // timeout / network error -> retry
     }
     const text = await readText(res);
     if (isInterstitial(res, text) || /<!doctype html|<html/i.test(text)) {
@@ -34,7 +47,7 @@ async function tryGenerate(message) {
     if (!obj.response) return { error: "Local model returned an empty reply. The PC may be offline." };
     return { response: obj.response };
   }
-  return { error: "Couldn't reach the operator's PC (tunnel kept dropping). It may be offline or the ngrok tunnel expired." };
+  return { error: "Couldn't reach the operator's PC (tunnel kept dropping). It may be offline or the ngrok tunnel expired — ask the operator to restart it." };
 }
 
 exports.handler = async (event) => {
