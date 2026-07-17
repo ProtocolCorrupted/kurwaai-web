@@ -9,6 +9,3 @@
 
 [functions]
   node_bundler = "esbuild"
-  # Give streaming responses (Ollama/Claude) enough headroom before the
-  # cold model returns its first token. Netlify free allows up to 60s.
-  timeout = 60
