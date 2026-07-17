@@ -1,10 +1,15 @@
 const jwt = require("jsonwebtoken");
 const { getStore } = require("@netlify/blobs");
 
-// Netlify's newer function runtime exposes the auth token as NETLIFY_FUNCTIONS_TOKEN
-// (not NETLIFY_BLOBS_TOKEN). @netlify/blobs looks for NETLIFY_BLOBS_TOKEN, so bridge it.
-if (!process.env.NETLIFY_BLOBS_TOKEN && process.env.NETLIFY_FUNCTIONS_TOKEN) {
-  process.env.NETLIFY_BLOBS_TOKEN = process.env.NETLIFY_FUNCTIONS_TOKEN;
+// Netlify's function runtime exposes the auth token as NETLIFY_FUNCTIONS_TOKEN.
+// @netlify/blobs v8 expects NETLIFY_BLOBS_CONTEXT = base64({ siteID, token }).
+// Bridge it so Blobs works without manual dashboard token setup.
+if (!process.env.NETLIFY_BLOBS_CONTEXT && process.env.NETLIFY_FUNCTIONS_TOKEN && process.env.SITE_ID) {
+  const ctx = Buffer.from(JSON.stringify({
+    siteID: process.env.SITE_ID,
+    token: process.env.NETLIFY_FUNCTIONS_TOKEN,
+  })).toString("base64");
+  process.env.NETLIFY_BLOBS_CONTEXT = ctx;
 }
 
 const SECRET = process.env.JWT_SECRET || "change-me-in-netlify-env-vars";
