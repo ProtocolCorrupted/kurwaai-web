@@ -52,3 +52,14 @@ const server = http.createServer((req, res) => {
 server.listen(9000, "127.0.0.1", () => {
   console.log("proxy listening on 9000 -> /ollama:11434 /comfy:8188");
 });
+
+// Keep the public ngrok tunnel warm so ngrok's edge never reports an
+// "Inactivity Timeout" (ERR_NGROK_320) to the Netlify function. Ping the
+// local backends every 30s through the tunnel host if known via env.
+const KEEPALIVE_HOST = process.env.KEEPALIVE_HOST;
+if (KEEPALIVE_HOST) {
+  setInterval(() => {
+    fetch(`${KEEPALIVE_HOST}/ollama/api/tags`, { signal: AbortSignal.timeout(8000) }).catch(() => {});
+  }, 30000);
+  console.log("tunnel keepalive enabled for " + KEEPALIVE_HOST);
+}
