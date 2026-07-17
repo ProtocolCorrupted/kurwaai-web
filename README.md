@@ -13,23 +13,27 @@ the operator's tunnel URLs stay hidden.
 ```
 Browser ──► Netlify Functions ──► operator's ngrok tunnel ──► Ollama :11434 / ComfyUI :8188
                   │
-                  ├─► Anthropic API (Plus/Max Claude models)
-                  └─► Stripe (checkout + webhook → tier)
+                  └─► Anthropic API (Plus/Max Claude models)
 ```
 
 - `public/index.html` — the whole frontend (landing, login/register, console). No framework, no build step.
 - `netlify/functions/_auth.js` — shared auth + tier config + rate-limit / queue / quota helpers.
 - `netlify/functions/register.js`, `login.js`, `logout.js`, `me.js` — auth + account/tier info, backed by Netlify Blobs. Passwords hashed with bcrypt, session is a JWT in an `httpOnly` cookie.
-- `netlify/functions/chat.js` — proxies chat to your Ollama (`qwen2.5-coder:7b`).
-- `netlify/functions/generate.js` — runs your bundled Flux2-Klein ComfyUI workflow, returns the image.
+- `netlify/functions/chat.js` — proxies chat to your Ollama (`gemma3:4b`).
+- `netlify/functions/generate.js` — runs your bundled Flux2-Klein ComfyUI workflow, returns the image (disabled until `ENABLE_IMAGE_GEN=true`).
 - `netlify/functions/claude.js` — tier-gated Claude access with per-window quotas.
-- `netlify/functions/stripe-checkout.js`, `stripe-webhook.js` — subscription flow.
+- `netlify/functions/admin-set-tier.js` — admin-only endpoint to grant tiers after Discord payment.
+
+## Upgrades (no Stripe — Discord-based)
+Payments are handled manually. The operator's reserved account (`kurwaai` by default) gets
+admin + Max automatically on first registration. After someone pays via Discord, the operator
+opens the **Admin panel** in the app, types the user's username, picks a tier, and grants it.
+There is no automated billing.
 
 ## 1. Deploy
 
 ```bash
 npm install
-netlify init        # or connect this repo in the Netlify dashboard
 netlify deploy --prod
 ```
 
@@ -39,11 +43,14 @@ In Netlify dashboard → Site settings → Environment variables:
 
 ```
 JWT_SECRET            = <long random string>   # REQUIRED in production (fails closed otherwise)
-OLLAMA_URL            = https://xxxx.ngrok-free.app   # your Ollama tunnel
-COMFY_URL             = https://yyyy.ngrok-free.app   # your ComfyUI tunnel
+OLLAMA_URL            = https://xxxx.ngrok-free.app   # your Ollama tunnel (REQUIRED for chat)
+COMFY_URL             = https://yyyy.ngrok-free.app   # your ComfyUI tunnel (for image gen)
 ANTHROPIC_API_KEY     = sk-ant-...                    # for Plus/Max Claude
 DISCORD_INVITE        = https://disboard.org/server/1504909141095874662  # shown to users for upgrades
 ADMIN_USERNAME        = kurwaai                       # reserved operator account name
+ENABLE_IMAGE_GEN      = false                         # set true when you have a stronger GPU
+NETLIFY_BLOBS_CONTEXT = base64({"siteID":"<site>","token":"<netlify-token>"})  # Blobs auth (already set)
+```
 ```
 
 ### Upgrades (no Stripe — Discord-based)
