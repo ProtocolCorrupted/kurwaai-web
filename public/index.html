@@ -523,12 +523,15 @@
         bubble.textContent = data.error || ("Error " + res.status);
         return;
       }
-      if(!res.body){
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      if(ct.includes("application/json")){
         const data = await res.json().catch(()=>({}));
-        bubble.innerHTML = renderMarkdown(data.response || "(empty)");
+        if(data.response){ bubble.innerHTML = renderMarkdown(data.response); }
+        else if(data.error){ bubble.textContent = data.error; }
+        else { bubble.textContent = "(empty)"; }
         return;
       }
-      // Stream tokens as they arrive.
+      // Stream tokens as they arrive (SSE).
       bubble.innerHTML = '<span class="cursor"></span>';
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
