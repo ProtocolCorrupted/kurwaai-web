@@ -30,17 +30,34 @@ exports.handler = async (event) => {
         prompt: message,
         stream: true,
       }),
+      signal: AbortSignal.timeout(120000),
     });
     if (!res.ok) {
       const text = await res.text();
+      await slot.release();
       return json(502, { error: `Local model error (${res.status}). Is Ollama running?`, detail: text.slice(0, 200) });
     }
 
     // Stream Ollama's newline-delimited JSON tokens back to the browser as SSE.
+    // Send periodic keepalive comments so idle proxies (and ngrok) don't drop
+    // the connection while the model is loading the first token.
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        let keepalive;
+        let released = false;
+        const release = async () => {
+          if (released) return;
+          released = true;
+          try { await slot.release(); } catch {}
+        };
+        const send = (obj) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
         try {
+          send({ info: "Thinking…" });
+          keepalive = setInterval(() => {
+            try { controller.enqueue(encoder.encode(`: keepalive\n\n`)); } catch {}
+          }, 15000);
+
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let buf = "";
@@ -52,21 +69,20 @@ exports.handler = async (event) => {
             while ((nl = buf.indexOf("\n")) >= 0) {
               const line = buf.slice(0, nl).trim();
               buf = buf.slice(nl + 1);
-              if (!line) continue;
+              if (!line || line.startsWith(":")) continue;
               try {
                 const obj = JSON.parse(line);
-                if (obj.response) {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: obj.response })}\n\n`));
-                }
+                if (obj.response) send({ token: obj.response });
               } catch {}
             }
           }
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
+          send({ done: true });
         } catch (e) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "stream failed" })}\n\n`));
+          send({ error: "The local model connection dropped. The operator's PC may be offline." });
         } finally {
+          clearInterval(keepalive);
           controller.close();
-          await slot.release();
+          await release();
         }
       },
     });
@@ -81,7 +97,7 @@ exports.handler = async (event) => {
       body: stream,
     };
   } catch (err) {
-    await slot.release();
+    try { await slot.release(); } catch {}
     return json(502, { error: "Couldn't reach the local model. The operator's PC may be offline." });
   }
 };

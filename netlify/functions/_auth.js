@@ -1,16 +1,10 @@
 const jwt = require("jsonwebtoken");
 const { getStore } = require("@netlify/blobs");
 
-// Netlify's function runtime exposes the auth token as NETLIFY_FUNCTIONS_TOKEN.
-// @netlify/blobs v8 expects NETLIFY_BLOBS_CONTEXT = base64({ siteID, token }).
-// Bridge it so Blobs works without manual dashboard token setup.
-if (!process.env.NETLIFY_BLOBS_CONTEXT && process.env.NETLIFY_FUNCTIONS_TOKEN && process.env.SITE_ID) {
-  const ctx = Buffer.from(JSON.stringify({
-    siteID: process.env.SITE_ID,
-    token: process.env.NETLIFY_FUNCTIONS_TOKEN,
-  })).toString("base64");
-  process.env.NETLIFY_BLOBS_CONTEXT = ctx;
-}
+// Netlify Blobs needs NETLIFY_BLOBS_CONTEXT = base64({ siteID, token }).
+// We set it as an explicit env var on the Netlify site (using a Netlify
+// personal access token), so no runtime bridge is required here.
+// Local dev (local-dev.js) sets it from .env when needed.
 
 const SECRET = process.env.JWT_SECRET || "change-me-in-netlify-env-vars";
 const COOKIE_NAME = "kurwaai_session";
@@ -220,8 +214,12 @@ async function consumeClaudeQuota(username, tokens) {
 
 // Resolve a user's full tier config from their stored tier field.
 async function getUserTierConfig(username) {
-  const user = await usersStore().get(`user:${username}`, { type: "json" });
-  return getTier(user && user.tier ? user.tier : "free");
+  try {
+    const user = await usersStore().get(`user:${username}`, { type: "json" });
+    return getTier(user && user.tier ? user.tier : "free");
+  } catch {
+    return getTier("free");
+  }
 }
 
 module.exports = {
