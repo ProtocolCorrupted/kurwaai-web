@@ -31,7 +31,7 @@ exports.handler = async (event) => {
         stream: false,
         keep_alive: -1,
       }),
-      signal: AbortSignal.timeout(55000),
+      signal: AbortSignal.timeout(25000),
     });
 
     const ct = (res.headers.get("content-type") || "").toLowerCase();
