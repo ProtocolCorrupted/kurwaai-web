@@ -114,6 +114,16 @@ function json(statusCode, body, extraHeaders = {}) {
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
+// ngrok's free-plan "Visit Site" interstitial returns an HTML page instead of
+// JSON. Detect that so we fail fast with a clear message instead of hanging.
+async function readText(res) {
+  try { return await res.text(); } catch { return ""; }
+}
+function isInterstitial(res, text) {
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+  return !ct.includes("json") && /<!doctype html|<html/i.test(text);
+}
+
 // ---- Per-user local usage tracking ----
 async function getUserLimits(username) {
   const store = usersStore();
@@ -142,7 +152,7 @@ async function getQueue() {
 // Enforces: daily message cap, 30 RPM (rolling 60s), and global queue cap.
 // Holds up to `holdMs` (GeForce-Now style) waiting for a free queue slot.
 // Returns { ok, status, body, rec, release } or an error response object.
-async function acquireLocalSlot(username, holdMs = 30000) {
+async function acquireLocalSlot(username, holdMs = 50000) {
   const tier = await getUserTierConfig(username);
   const cfg = tier.local;
 
@@ -246,4 +256,6 @@ module.exports = {
   checkClaudeQuota,
   consumeClaudeQuota,
   getUserTierConfig,
+  readText,
+  isInterstitial,
 };

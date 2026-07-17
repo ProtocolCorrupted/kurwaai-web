@@ -1,4 +1,4 @@
-const { verifySession, acquireLocalSlot, OLLAMA_URL, MODELS, json } = require("./_auth");
+const { verifySession, acquireLocalSlot, OLLAMA_URL, MODELS, json, readText, isInterstitial } = require("./_auth");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -32,8 +32,17 @@ exports.handler = async (event) => {
       }),
       signal: AbortSignal.timeout(120000),
     });
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    const okStream = res.ok && (ct.includes("json") || ct.includes("stream") || ct.includes("text/plain") || ct === "");
+    if (!okStream) {
+      const probe = await readText(res);
+      if (isInterstitial(res, probe)) {
+        await slot.release();
+        return json(502, { error: "The operator's tunnel is showing a verification page. Ask the operator to click through it or upgrade ngrok." });
+      }
+    }
     if (!res.ok) {
-      const text = await res.text();
+      const text = await readText(res);
       await slot.release();
       return json(502, { error: `Local model error (${res.status}). Is Ollama running?`, detail: text.slice(0, 200) });
     }

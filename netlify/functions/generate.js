@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { verifySession, acquireLocalSlot, COMFY_URL, FEATURES, json } = require("./_auth");
+const { verifySession, acquireLocalSlot, COMFY_URL, FEATURES, json, readText, isInterstitial } = require("./_auth");
 
 function loadWorkflow() {
   return JSON.parse(
@@ -45,7 +45,10 @@ exports.handler = async (event) => {
       body: JSON.stringify({ prompt: wf, client_id: `kurwaai-${session.username}` }),
     });
     if (!qRes.ok) {
-      const text = await qRes.text();
+      const text = await readText(qRes);
+      if (isInterstitial(qRes, text)) {
+        return json(502, { error: "The operator's tunnel is showing a verification page. Ask the operator to click through it or upgrade ngrok." });
+      }
       return json(502, { error: `ComfyUI rejected the prompt (${qRes.status}).`, detail: text.slice(0, 200) });
     }
     const { prompt_id } = await qRes.json();

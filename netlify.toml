@@ -7,12 +7,8 @@
   to = "/.netlify/functions/:splat"
   status = 200
 
-# Stripe webhook needs the raw, unmodified request body for signature verification.
-[[redirects]]
-  from = "/api/stripe-webhook"
-  to = "/.netlify/functions/stripe-webhook"
-  status = 200
-
 [functions]
-  # Ensure the raw body is available to the webhook function.
   node_bundler = "esbuild"
+  # Give streaming responses (Ollama/Claude) enough headroom before the
+  # cold model returns its first token. Netlify free allows up to 60s.
+  timeout = 60
