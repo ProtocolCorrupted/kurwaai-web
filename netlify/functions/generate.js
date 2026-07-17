@@ -2,10 +2,11 @@ const fs = require("fs");
 const path = require("path");
 const { verifySession, acquireLocalSlot, COMFY_URL, FEATURES, json } = require("./_auth");
 
-// Load the bundled Flux2-Klein text-to-image workflow.
-const WORKFLOW = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "image_flux2_klein_text_to_image.json"), "utf8")
-);
+function loadWorkflow() {
+  return JSON.parse(
+    fs.readFileSync(path.join(__dirname, "image_flux2_klein_text_to_image.json"), "utf8")
+  );
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -31,7 +32,7 @@ exports.handler = async (event) => {
 
   try {
     // Build a fresh workflow with the user's prompt + randomized seed.
-    const wf = JSON.parse(JSON.stringify(WORKFLOW));
+    const wf = JSON.parse(JSON.stringify(loadWorkflow()));
     wf["76"].inputs.value = prompt;
     wf["75:73"].inputs.noise_seed = Math.floor(Math.random() * 1e15);
     if (body.width && Number.isFinite(+body.width)) wf["75:68"].inputs.value = Math.min(2048, Math.max(64, +body.width));
