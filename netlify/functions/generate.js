@@ -39,9 +39,10 @@ exports.handler = async (event) => {
     if (body.height && Number.isFinite(+body.height)) wf["75:69"].inputs.value = Math.min(2048, Math.max(64, +body.height));
 
     // Queue the prompt.
+    const NGROK_HEADERS = { "ngrok-skip-browser-warning": "true", "User-Agent": "KurwaAI-Server/1.0" };
     const qRes = await fetch(`${COMFY_URL}/prompt`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...NGROK_HEADERS },
       body: JSON.stringify({ prompt: wf, client_id: `kurwaai-${session.username}` }),
     });
     if (!qRes.ok) {
@@ -58,7 +59,7 @@ exports.handler = async (event) => {
     let output = null;
     const deadline = Date.now() + 180000; // 3 min max
     while (Date.now() < deadline) {
-      const hRes = await fetch(`${COMFY_URL}/history/${prompt_id}`);
+      const hRes = await fetch(`${COMFY_URL}/history/${prompt_id}`, { headers: NGROK_HEADERS });
       if (hRes.ok) {
         const hist = await hRes.json();
         const entry = hist[prompt_id];
@@ -73,7 +74,7 @@ exports.handler = async (event) => {
 
     // Fetch the actual image bytes.
     const viewUrl = `${COMFY_URL}/view?filename=${encodeURIComponent(output.filename)}&subfolder=${encodeURIComponent(output.subfolder || "")}&type=${encodeURIComponent(output.type || "output")}`;
-    const imgRes = await fetch(viewUrl);
+    const imgRes = await fetch(viewUrl, { headers: NGROK_HEADERS });
     if (!imgRes.ok) return json(502, { error: "Failed to fetch generated image." });
     const buf = Buffer.from(await imgRes.arrayBuffer());
     const b64 = buf.toString("base64");

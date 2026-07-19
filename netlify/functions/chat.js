@@ -22,7 +22,12 @@ async function tryGenerate(message) {
       res = await withTimeout(
         fetch(`${OLLAMA_URL}/api/generate`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Connection": "close" },
+          headers: {
+            "Content-Type": "application/json",
+            "Connection": "close",
+            "ngrok-skip-browser-warning": "true",
+            "User-Agent": "KurwaAI-Server/1.0",
+          },
           body: JSON.stringify({
             model: MODELS.ollamaChat,
             prompt: message,
