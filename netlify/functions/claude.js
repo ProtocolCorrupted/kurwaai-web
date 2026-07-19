@@ -8,7 +8,6 @@ const MODEL_LABELS = {
   "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
   "claude-sonnet-5": "Claude Sonnet 5",
   "claude-opus-4-8": "Claude Opus 4.8",
-  "claude-fable-5": "Claude Fable 5",
 };
 
 exports.handler = async (event) => {

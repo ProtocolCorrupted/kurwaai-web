@@ -56,7 +56,6 @@ const TIERS = {
     local: { dailyMsgMax: 100000, rpmMax: 600, queueMax: 8 },
     claude: {
       models: [
-        "claude-fable-5",
         "claude-opus-4-8",
         "claude-sonnet-5",
         "claude-haiku-4-5-20251001",
