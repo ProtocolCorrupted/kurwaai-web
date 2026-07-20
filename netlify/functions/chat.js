@@ -57,7 +57,7 @@ async function tryOpenRouter(message) {
             stream: false,
           }),
         }),
-        30000
+        12000
       );
     } catch {
       continue; // timeout / network error -> retry
