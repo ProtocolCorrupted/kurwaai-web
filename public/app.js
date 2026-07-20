@@ -312,14 +312,6 @@
         bubble.textContent = data.error || ("Error " + res.status);
         return;
       }
-      const ct = (res.headers.get("content-type") || "").toLowerCase();
-      if(ct.includes("application/json")){
-        const data = await res.json().catch(()=>({}));
-        if(data.response){ bubble.innerHTML = renderMarkdown(data.response); }
-        else if(data.error){ bubble.textContent = data.error; }
-        else { bubble.textContent = "(empty)"; }
-        return;
-      }
       bubble.innerHTML = '<span class="cursor"></span>';
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

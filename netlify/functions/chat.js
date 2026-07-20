@@ -30,7 +30,9 @@ const SYSTEM_PROMPT = [
   "DISCLAIMER: This chat is routed through OpenRouter. By using this AI, you acknowledge that OpenRouter and its model providers may collect and process the prompts and outputs you send for service operation, safety, and research purposes. Do not share secrets, passwords, or sensitive personal data.",
 ].join("\n");
 
-// ---- OpenRouter chat ----
+// ---- OpenRouter chat (streaming) ----
+// Returns a ReadableStream of `data: {token|error|done}\n` frames when OK,
+// or an error object {error} on failure.
 async function tryOpenRouter(message) {
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
@@ -54,7 +56,7 @@ async function tryOpenRouter(message) {
             // Free model, no cost: use the full 66K max output + 1M context window.
             max_tokens: 66000,
             temperature: 0.7,
-            stream: false,
+            stream: true,
           }),
         }),
         30000
@@ -62,17 +64,16 @@ async function tryOpenRouter(message) {
     } catch {
       continue; // timeout / network error -> retry
     }
-    const text = await readText(res);
     if (!res.ok) {
+      const text = await readText(res);
       let detail = text.slice(0, 300);
       try { const o = JSON.parse(text); if (o.error && o.error.message) detail = o.error.message; } catch {}
       return { error: `OpenRouter request failed (${res.status}). ${detail}` };
     }
-    let obj;
-    try { obj = JSON.parse(text); } catch { return { error: "OpenRouter returned an unexpected response." }; }
-    const reply = obj.choices && obj.choices[0] && obj.choices[0].message && obj.choices[0].message.content;
-    if (!reply) return { error: "OpenRouter returned an empty reply." };
-    return { response: reply };
+    if (!res.body || !res.body.getReader) {
+      return { error: "OpenRouter did not return a stream." };
+    }
+    return { stream: res.body };
   }
   return { error: "Couldn't reach OpenRouter. It may be rate-limited or temporarily down — try again in a moment." };
 }
@@ -140,14 +141,84 @@ exports.handler = async (event) => {
   const slot = await acquireLocalSlot(session.username);
   if (!slot.ok) return slot;
 
+  // ---- Local Ollama fallback (non-streaming) -> wrap as a single frame ----
+  if (!useOpenRouter) {
+    try {
+      const result = await tryGenerate(message);
+      await slot.release();
+      if (result.error) return json(502, { error: result.error });
+      const enc = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ token: result.response })}\n`));
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true })}\n`));
+          controller.close();
+        },
+      });
+      return { statusCode: 200, headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" }, body: stream };
+    } catch (err) {
+      try { await slot.release(); } catch {}
+      return json(502, { error: "Couldn't reach the chat model. Please try again." });
+    }
+  }
+
+  // ---- OpenRouter streaming ----
   try {
-    const result = useOpenRouter ? await tryOpenRouter(message) : await tryGenerate(message);
+    const result = await tryOpenRouter(message);
     if (result.error) {
       await slot.release();
       return json(502, { error: result.error });
     }
-    await slot.release();
-    return json(200, { response: result.response });
+
+    const enc = new TextEncoder();
+    const upstream = result.stream.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let released = false;
+
+    const releaseOnce = async () => {
+      if (released) return;
+      released = true;
+      try { await slot.release(); } catch {}
+    };
+
+    const stream = new ReadableStream({
+      async pull(controller) {
+        try {
+          const { done, value } = await upstream.read();
+          if (done) {
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true })}\n`));
+            controller.close();
+            await releaseOnce();
+            return;
+          }
+          buf += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (payload === "[DONE]") continue;
+            let obj;
+            try { obj = JSON.parse(payload); } catch { continue; }
+            const token = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
+            if (token) controller.enqueue(enc.encode(`data: ${JSON.stringify({ token })}\n`));
+          }
+        } catch (e) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: "Stream interrupted." })}\n`));
+          controller.close();
+          await releaseOnce();
+        }
+      },
+      async cancel() { await releaseOnce(); },
+    });
+
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store", "X-Accel-Buffering": "no" },
+      body: stream,
+    };
   } catch (err) {
     try { await slot.release(); } catch {}
     return json(502, { error: "Couldn't reach the chat model. Please try again." });

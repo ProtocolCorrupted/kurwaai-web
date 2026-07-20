@@ -76,6 +76,11 @@ a:hover{text-decoration:underline;}
 ::selection{background:var(--accent); color:var(--on-accent);}
 :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;}
 
+/* ---------- starfall canvas ---------- */
+#stars{
+  position:fixed; inset:0; z-index:0; pointer-events:none; width:100%; height:100%;
+}
+
 /* ambient grid backdrop */
 .grid-bg{
   position:fixed; inset:0; z-index:0; pointer-events:none;
@@ -308,7 +313,13 @@ h1 .accent{background:var(--grad); -webkit-background-clip:text; background-clip
 .empty-state h4{color:var(--fg-muted); font-size:15px; font-weight:600; margin-bottom:var(--sp-2);}
 .empty-state p{font-size:13px; line-height:1.6;}
 
-.msg{margin-bottom:var(--sp-5); max-width:88%;}
+.msg{margin-bottom:var(--sp-5); max-width:88%; animation:msgIn .45s var(--spring) both;}
+@keyframes msgIn{
+  0%{opacity:0; transform:translateY(14px) scale(.92);}
+  60%{opacity:1; transform:translateY(-3px) scale(1.02);}
+  80%{transform:translateY(0) scale(.99);}
+  100%{transform:translateY(0) scale(1);}
+}
 .msg.user{margin-left:auto;}
 .msg .who{
   font-family:var(--font-mono); font-size:10px; color:var(--fg-dim);
