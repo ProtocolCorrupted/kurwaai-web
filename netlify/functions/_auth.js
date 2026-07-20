@@ -152,13 +152,14 @@ async function getQueue() {
   return q;
 }
 
-// Acquire a slot for a local (Ollama/ComfyUI) request.
-// Enforces: daily message cap, 30 RPM (rolling 60s), and global queue cap.
-// Holds up to `holdMs` (GeForce-Now style) waiting for a free queue slot.
-// Self-heals a stale global counter (e.g. after a function timeout that
-// failed to release) so a stuck count can't block every future request.
+// Acquire a request slot.
+// Enforces ONLY per-user limits (daily message cap + 30 RPM rolling window).
+// The old global "concurrent GPU queue" was removed: the chat backend is a
+// cloud API (OpenRouter), not a local GPU, so a shared blocking counter could
+// deadlock and cause 504s whenever a request was killed mid-flight. Concurrency
+// is now tracked non-blockingly for observability only — it never denies or waits.
 // Returns { ok, status, body, rec, release } or an error response object.
-async function acquireLocalSlot(username, holdMs = 15000) {
+async function acquireLocalSlot(username) {
   const tier = await getUserTierConfig(username);
   const cfg = tier.local;
 
@@ -173,38 +174,28 @@ async function acquireLocalSlot(username, holdMs = 15000) {
     return json(429, { error: `Too many requests — ${cfg.rpmMax} per minute. Slow down a sec.` });
   }
 
-  // Wait for a free global queue slot (self-healing stale counters).
-  const deadline = now + holdMs;
-  while (Date.now() < deadline) {
+  // Book the per-user usage immediately (no waiting, no global lock).
+  rec.msgCount += 1;
+  rec.rpm.push(now);
+  await saveUserLimits(username, rec);
+
+  // Non-blocking concurrency counter (stats only — never blocks or denies).
+  try {
     const q = await getQueue();
-    // If the counter is stale (no release in 60s), assume dead holders and reset.
-    if ((q.updatedAt || 0) < Date.now() - 60000) {
-      q.count = 0;
-    }
-    if (q.count < cfg.queueMax) {
-      q.count += 1;
-      q.updatedAt = Date.now();
-      await limitsStore().setJSON("active_users", q);
-      rec.msgCount += 1;
-      rec.rpm.push(Date.now());
-      await saveUserLimits(username, rec);
-      const release = async () => {
-        const cur = await getQueue();
-        if ((cur.updatedAt || 0) < Date.now() - 60000) cur.count = 0;
-        else cur.count = Math.max(0, cur.count - 1);
-        cur.updatedAt = Date.now();
-        await limitsStore().setJSON("active_users", cur);
-      };
-      return { ok: true, rec, release };
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  // Final self-heal so the next caller isn't permanently blocked.
-  const q = await getQueue();
-  if ((q.updatedAt || 0) < Date.now() - 60000) {
-    await limitsStore().setJSON("active_users", { count: 0, updatedAt: Date.now() });
-  }
-  return json(503, { error: "All GPU slots are busy right now. You're in the queue — try again in a moment." });
+    q.count = (q.count || 0) + 1;
+    q.updatedAt = now;
+    await limitsStore().setJSON("active_users", q);
+  } catch {}
+
+  const release = async () => {
+    try {
+      const cur = await getQueue();
+      cur.count = Math.max(0, (cur.count || 0) - 1);
+      cur.updatedAt = Date.now();
+      await limitsStore().setJSON("active_users", cur);
+    } catch {}
+  };
+  return { ok: true, rec, release };
 }
 
 // ---- Claude quota (Plus/Max) ----
