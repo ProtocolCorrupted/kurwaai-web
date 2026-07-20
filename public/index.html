@@ -163,7 +163,69 @@
   <p><a href="https://disboard.org/server/1504909141095874662" target="_blank" rel="noopener">Join our Discord</a></p>
 </footer>
 
-<script src="/stars.js"></script>
+<script>
+(function () {
+  "use strict";
+  var canvas = document.getElementById("stars");
+  if (!canvas) return;
+  var ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var w, h, dpr, stars, raf;
+  function rand(a, b) { return Math.random() * (b - a) + a; }
+  function makeStars() {
+    var count = Math.min(160, Math.floor((w * h) / 12000));
+    stars = [];
+    for (var i = 0; i < count; i++) {
+      stars.push({
+        x: Math.random() * w, y: Math.random() * h, z: rand(0.3, 1),
+        r: rand(0.4, 1.6), tw: rand(0, Math.PI * 2), tws: rand(0.01, 0.04),
+        hue: Math.random() < 0.25 ? 190 : 150
+      });
+    }
+  }
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = window.innerWidth; h = window.innerHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.style.width = w + "px"; canvas.style.height = h + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); makeStars();
+  }
+  function draw() {
+    ctx.clearRect(0, 0, w, h);
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      s.y += s.z * 0.45;
+      if (s.y > h + 4) { s.y = -4; s.x = Math.random() * w; }
+      s.tw += s.tws;
+      var a = Math.max(0.05, Math.min(1, 0.35 + Math.sin(s.tw) * 0.35 + s.z * 0.2));
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r * (0.6 + s.z * 0.8), 0, Math.PI * 2);
+      ctx.fillStyle = "hsla(" + s.hue + ", 80%, 65%, " + a + ")";
+      ctx.shadowBlur = 6 * s.z;
+      ctx.shadowColor = "hsla(" + s.hue + ", 90%, 60%, " + (a * 0.8) + ")";
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    raf = requestAnimationFrame(draw);
+  }
+  function drawStatic() {
+    ctx.clearRect(0, 0, w, h);
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = "hsla(" + s.hue + ", 80%, 65%, 0.5)"; ctx.fill();
+    }
+  }
+  resize();
+  window.addEventListener("resize", resize);
+  if (reduceMotion) { drawStatic(); } else { raf = requestAnimationFrame(draw); }
+  document.addEventListener("visibilitychange", function () {
+    if (reduceMotion) return;
+    if (document.hidden) { cancelAnimationFrame(raf); } else { raf = requestAnimationFrame(draw); }
+  });
+})();
+</script>
 <script src="/app.js"></script>
 </body>
 </html>

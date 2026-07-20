@@ -46,14 +46,20 @@ function getStore(name) {
   };
 }
 
-// Patch require so `require("@netlify/blobs")` returns our shim.
-const Module = require("module");
-const origResolve = Module._resolveFilename;
-const origLoad = Module._load;
-Module._load = function (request, parent, isMain) {
-  if (request === "@netlify/blobs") return { getStore };
-  return origLoad.apply(this, arguments);
-};
+// Use real Netlify Blobs when NETLIFY_BLOBS_CONTEXT is provided (shared accounts
+// with the live site). Otherwise fall back to the in-memory shim for offline dev.
+const USE_REAL_BLOBS = !!process.env.NETLIFY_BLOBS_CONTEXT;
+if (USE_REAL_BLOBS) {
+  console.log("  Blobs: using REAL Netlify Blobs (shared with live site)");
+} else {
+  console.log("  Blobs: using in-memory shim (set NETLIFY_BLOBS_CONTEXT for shared accounts)");
+  const Module = require("module");
+  const origLoad = Module._load;
+  Module._load = function (request, parent, isMain) {
+    if (request === "@netlify/blobs") return { getStore };
+    return origLoad.apply(this, arguments);
+  };
+}
 
 // ---- cookie jar for the dev browser session (single user simulation) ----
 // We just pass whatever cookies the browser sends; no cross-user needed locally.
@@ -85,8 +91,29 @@ function serveStatic(req, res, url) {
   });
 }
 
+// Proxy /ollama/* -> 11434 and /comfy/* -> 8188 so a single tunnel on this
+// port can serve BOTH the app (browser) AND the model endpoints that the
+// remote Netlify functions call (OLLAMA_URL = https://<tunnel>/ollama).
+const PROXY_BACKENDS = { "/ollama": "http://127.0.0.1:11434", "/comfy": "http://127.0.0.1:8188" };
+function proxyPass(req, res, url, prefix, target) {
+  const stripped = url.pathname.slice(prefix.length) || "/";
+  const backend = new URL(target);
+  const headers = Object.assign({}, req.headers);
+  headers.host = backend.host;
+  const opts = { host: backend.hostname, port: backend.port, method: req.method, path: stripped + url.search, headers };
+  const pReq = http.request(opts, (pRes) => { res.writeHead(pRes.statusCode, pRes.headers); pRes.pipe(res); });
+  pReq.on("error", (e) => { if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/plain" }); res.end("backend error: " + e.message); });
+  req.pipe(pReq);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
+
+  for (const prefix of Object.keys(PROXY_BACKENDS)) {
+    if (url.pathname === prefix || url.pathname.startsWith(prefix + "/")) {
+      return proxyPass(req, res, url, prefix, PROXY_BACKENDS[prefix]);
+    }
+  }
 
   if (url.pathname.startsWith("/api/")) {
     const splat = url.pathname.replace(/^\/api\//, "").replace(/^\.netlify\/functions\//, "");

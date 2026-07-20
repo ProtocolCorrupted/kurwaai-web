@@ -60,6 +60,6 @@ const KEEPALIVE_HOST = process.env.KEEPALIVE_HOST;
 if (KEEPALIVE_HOST) {
   setInterval(() => {
     fetch(`${KEEPALIVE_HOST}/ollama/api/tags`, { signal: AbortSignal.timeout(8000) }).catch(() => {});
-  }, 30000);
+  }, 10000);
   console.log("tunnel keepalive enabled for " + KEEPALIVE_HOST);
 }
