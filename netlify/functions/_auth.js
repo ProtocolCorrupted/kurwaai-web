@@ -19,6 +19,11 @@ if (IS_PRODUCTION && SECRET === "change-me-in-netlify-env-vars") {
 const OLLAMA_URL = (process.env.OLLAMA_URL || "").replace(/\/$/, "");
 const COMFY_URL = (process.env.COMFY_URL || "").replace(/\/$/, "");
 
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+// Default chat model on OpenRouter (cheap, fast). Override with env if wanted.
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "nvidia/nemotron-3-ultra-550b-a55b:free";
+const OPENROUTER_SITE = process.env.OPENROUTER_SITE || "https://openrouter.ai";
+
 const DISCORD_INVITE = process.env.DISCORD_INVITE || "https://disboard.org/server/1504909141095874662";
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || "kurwaai").toLowerCase();
 
@@ -236,6 +241,9 @@ module.exports = {
   COOKIE_NAME,
   OLLAMA_URL,
   COMFY_URL,
+  OPENROUTER_API_KEY,
+  OPENROUTER_MODEL,
+  OPENROUTER_SITE,
   MODELS,
   DISCORD_INVITE,
   ADMIN_USERNAME,

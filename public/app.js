@@ -79,7 +79,7 @@
   function renderEmptyState(){
     const log = $("chat-log");
     if(log.children.length === 0){
-      log.innerHTML = `<div class="empty-state">${ICON.bot}<h4>Start a conversation</h4><p>Ask anything — powered by local AI on community hardware. Your messages stay on the operator's machine.</p></div>`;
+      log.innerHTML = `<div class="empty-state">${ICON.bot}<h4>Start a conversation</h4><p>Chat is powered by OpenRouter's free models. By chatting, you acknowledge OpenRouter may collect prompts and outputs for service operation and research. Ask anything — it's free.</p></div>`;
     }
   }
   function clearEmptyState(){
@@ -211,7 +211,7 @@
     active && active.classList.add("active");
     $("claude-model").style.display = m === "claude" ? "block" : "none";
     const hints = {
-      chat: "Local AI chat — fast, free, community-hosted.",
+      chat: "Chat via OpenRouter (free model). OpenRouter may collect prompts & outputs.",
       generate: "Describe an image to generate.",
       claude: "Claude model (Plus / Max plans)."
     };
