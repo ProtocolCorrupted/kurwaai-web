@@ -300,7 +300,6 @@
     const waiting = addMsg("bot", {html:`<span class="typing"><span></span><span></span><span></span></span>`});
     setBusy(true);
     currentAbort = new AbortController();
-    let acc = "";
     const bubble = waiting.querySelector(".bubble");
     try{
       const res = await fetch("/api/chat", {
@@ -312,33 +311,35 @@
         bubble.textContent = data.error || ("Error " + res.status);
         return;
       }
-      bubble.innerHTML = '<span class="cursor"></span>';
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      while(true){
-        const {done, value} = await reader.read();
-        if(done) break;
-        buf += decoder.decode(value, {stream:true});
-        let nl;
-        while((nl = buf.indexOf("\n")) >= 0){
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if(!line.startsWith("data:")) continue;
-          const payload = line.slice(5).trim();
-          if(!payload) continue;
-          try{
-            const obj = JSON.parse(payload);
-            if(obj.token){ acc += obj.token; bubble.innerHTML = renderMarkdown(acc) + '<span class="cursor"></span>'; $("chat-log").scrollTop = $("chat-log").scrollHeight; }
-            else if(obj.error){ bubble.textContent = obj.error; }
-          }catch{}
-        }
-      }
-      bubble.innerHTML = renderMarkdown(acc);
+      const data = await res.json().catch(()=>({}));
+      if(data.error){ bubble.textContent = data.error; return; }
+      if(!data.response){ bubble.textContent = "(empty)"; return; }
+      await typewrite(bubble, data.response);
     }catch(e){
-      if(e.name === "AbortError"){ bubble.innerHTML = renderMarkdown(acc) + "\n\n_— stopped_"; }
+      if(e.name === "AbortError"){ /* typewriter stopped */ }
       else { bubble.textContent = "Network error. Try again."; }
     }finally{ currentAbort = null; setBusy(false); refreshLimits(); }
+  }
+
+  // Reveal text live (typewriter) by progressively rendering markdown.
+  function typewrite(bubble, full){
+    return new Promise((resolve) => {
+      const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if(reduce || !full){ bubble.innerHTML = renderMarkdown(full || ""); resolve(); return; }
+      const len = full.length;
+      let i = 0;
+      const step = Math.max(1, Math.ceil(len / 90)); // finish in ~90 frames
+      bubble.innerHTML = '<span class="cursor"></span>';
+      const tick = () => {
+        if(currentAbort && currentAbort.signal.aborted){ bubble.innerHTML = renderMarkdown(full); resolve(); return; }
+        i = Math.min(len, i + step);
+        bubble.innerHTML = renderMarkdown(full.slice(0, i)) + '<span class="cursor"></span>';
+        $("chat-log").scrollTop = $("chat-log").scrollHeight;
+        if(i < len){ requestAnimationFrame(tick); }
+        else { bubble.innerHTML = renderMarkdown(full); resolve(); }
+      };
+      requestAnimationFrame(tick);
+    });
   }
 
   async function doGenerate(text){
@@ -372,7 +373,7 @@
       });
       const data = await res.json();
       if(!res.ok){ setStatus(waiting, escapeHtml(data.error || "Error.")); return; }
-      waiting.querySelector(".bubble").innerHTML = renderMarkdown(data.response || "(empty)");
+      await typewrite(waiting.querySelector(".bubble"), data.response || "(empty)");
     }catch(e){
       if(e.name === "AbortError"){ setStatus(waiting, "— stopped"); }
       else { setStatus(waiting, "Network error. Try again."); }
