@@ -1,4 +1,4 @@
-const {
+import {
   verifySession,
   acquireLocalSlot,
   OLLAMA_URL,
@@ -6,10 +6,9 @@ const {
   OPENROUTER_MODEL,
   OPENROUTER_SITE,
   MODELS,
-  json,
   readText,
   isInterstitial,
-} = require("./_auth");
+} from "./_auth.js";
 
 // Manual timeout (Promise.race) — some runtimes don't honor AbortSignal.timeout
 // for hung TLS connections.
@@ -53,7 +52,6 @@ async function tryOpenRouter(message) {
               { role: "system", content: SYSTEM_PROMPT },
               { role: "user", content: message },
             ],
-            // Free model, no cost: use the full 66K max output + 1M context window.
             max_tokens: 66000,
             temperature: 0.7,
             stream: true,
@@ -78,7 +76,7 @@ async function tryOpenRouter(message) {
   return { error: "Couldn't reach OpenRouter. It may be rate-limited or temporarily down — try again in a moment." };
 }
 
-// ---- Local Ollama fallback ----
+// ---- Local Ollama fallback (non-streaming) ----
 async function tryGenerate(message) {
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
@@ -116,111 +114,119 @@ async function tryGenerate(message) {
   return { error: "Couldn't reach the operator's PC (tunnel kept dropping). It may be offline or the ngrok tunnel expired — ask the operator to restart it." };
 }
 
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
-
-  const session = verifySession(event);
-  if (!session) return json(401, { error: "Not logged in." });
-
-  let body;
-  try {
-    body = JSON.parse(event.body || "{}");
-  } catch {
-    return json(400, { error: "Bad JSON" });
+// ---- v2 handler (supports streaming Response) ----
+export default async function handler(request) {
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: { "Content-Type": "application/json" } });
   }
 
-  const message = (body.message || "").toString().slice(0, 8000);
-  if (!message.trim()) return json(400, { error: "Empty message." });
+  const session = verifySession({ headers: { cookie: request.headers.get("cookie") || "" } });
+  if (!session) {
+    return new Response(JSON.stringify({ error: "Not logged in." }), { status: 401, headers: { "Content-Type": "application/json" } });
+  }
 
-  // Prefer OpenRouter when configured; otherwise fall back to local Ollama.
+  let body;
+  try { body = await request.json(); } catch { return new Response(JSON.stringify({ error: "Bad JSON" }), { status: 400, headers: { "Content-Type": "application/json" } }); }
+
+  const message = (body.message || "").toString().slice(0, 8000);
+  if (!message.trim()) return new Response(JSON.stringify({ error: "Empty message." }), { status: 400, headers: { "Content-Type": "application/json" } });
+
   const useOpenRouter = !!OPENROUTER_API_KEY;
   if (!useOpenRouter && !OLLAMA_URL) {
-    return json(503, { error: "No chat backend is configured by the operator yet." });
+    return new Response(JSON.stringify({ error: "No chat backend is configured by the operator yet." }), { status: 503, headers: { "Content-Type": "application/json" } });
   }
 
   const slot = await acquireLocalSlot(session.username);
-  if (!slot.ok) return slot;
+  if (!slot.ok) {
+    return new Response(JSON.stringify(slot.body || { error: "Rate limited." }), { status: slot.statusCode, headers: { "Content-Type": "application/json" } });
+  }
 
-  // ---- Local Ollama fallback (non-streaming) -> wrap as a single frame ----
+  // Local Ollama fallback -> wrap single response as one frame.
   if (!useOpenRouter) {
-    try {
-      const result = await tryGenerate(message);
-      await slot.release();
-      if (result.error) return json(502, { error: result.error });
-      const enc = new TextEncoder();
-      const stream = new ReadableStream({
-        start(controller) {
+    const result = await tryGenerate(message);
+    await slot.release();
+    const enc = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        if (result.error) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: result.error })}\n`));
+        } else {
           controller.enqueue(enc.encode(`data: ${JSON.stringify({ token: result.response })}\n`));
+        }
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true })}\n`));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" } });
+  }
+
+  // OpenRouter streaming.
+  const result = await tryOpenRouter(message);
+  if (result.error) {
+    await slot.release();
+    const enc = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: result.error })}\n`));
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true })}\n`));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" } });
+  }
+
+  const enc = new TextEncoder();
+  const upstream = result.stream.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let released = false;
+
+  const releaseOnce = async () => {
+    if (released) return;
+    released = true;
+    try { await slot.release(); } catch {}
+  };
+
+  const stream = new ReadableStream({
+    async pull(controller) {
+      try {
+        const { done, value } = await upstream.read();
+        if (done) {
           controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true })}\n`));
           controller.close();
-        },
-      });
-      return { statusCode: 200, headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" }, body: stream };
-    } catch (err) {
-      try { await slot.release(); } catch {}
-      return json(502, { error: "Couldn't reach the chat model. Please try again." });
-    }
-  }
-
-  // ---- OpenRouter streaming ----
-  try {
-    const result = await tryOpenRouter(message);
-    if (result.error) {
-      await slot.release();
-      return json(502, { error: result.error });
-    }
-
-    const enc = new TextEncoder();
-    const upstream = result.stream.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    let released = false;
-
-    const releaseOnce = async () => {
-      if (released) return;
-      released = true;
-      try { await slot.release(); } catch {}
-    };
-
-    const stream = new ReadableStream({
-      async pull(controller) {
-        try {
-          const { done, value } = await upstream.read();
-          if (done) {
-            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true })}\n`));
-            controller.close();
-            await releaseOnce();
-            return;
-          }
-          buf += decoder.decode(value, { stream: true });
-          let nl;
-          while ((nl = buf.indexOf("\n")) >= 0) {
-            const line = buf.slice(0, nl).trim();
-            buf = buf.slice(nl + 1);
-            if (!line.startsWith("data:")) continue;
-            const payload = line.slice(5).trim();
-            if (payload === "[DONE]") continue;
-            let obj;
-            try { obj = JSON.parse(payload); } catch { continue; }
-            const token = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
-            if (token) controller.enqueue(enc.encode(`data: ${JSON.stringify({ token })}\n`));
-          }
-        } catch (e) {
-          controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: "Stream interrupted." })}\n`));
-          controller.close();
           await releaseOnce();
+          return;
         }
-      },
-      async cancel() { await releaseOnce(); },
-    });
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (payload === "[DONE]") continue;
+          let obj;
+          try { obj = JSON.parse(payload); } catch { continue; }
+          const token = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
+          if (token) controller.enqueue(enc.encode(`data: ${JSON.stringify({ token })}\n`));
+        }
+      } catch (e) {
+        try {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: "Stream interrupted." })}\n`));
+        } catch {}
+        controller.close();
+        await releaseOnce();
+      }
+    },
+    async cancel() { await releaseOnce(); },
+  });
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store", "X-Accel-Buffering": "no" },
-      body: stream,
-    };
-  } catch (err) {
-    try { await slot.release(); } catch {}
-    return json(502, { error: "Couldn't reach the chat model. Please try again." });
-  }
-};
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
