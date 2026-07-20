@@ -155,8 +155,10 @@ async function getQueue() {
 // Acquire a slot for a local (Ollama/ComfyUI) request.
 // Enforces: daily message cap, 30 RPM (rolling 60s), and global queue cap.
 // Holds up to `holdMs` (GeForce-Now style) waiting for a free queue slot.
+// Self-heals a stale global counter (e.g. after a function timeout that
+// failed to release) so a stuck count can't block every future request.
 // Returns { ok, status, body, rec, release } or an error response object.
-async function acquireLocalSlot(username, holdMs = 50000) {
+async function acquireLocalSlot(username, holdMs = 15000) {
   const tier = await getUserTierConfig(username);
   const cfg = tier.local;
 
@@ -171,10 +173,14 @@ async function acquireLocalSlot(username, holdMs = 50000) {
     return json(429, { error: `Too many requests — ${cfg.rpmMax} per minute. Slow down a sec.` });
   }
 
-  // Wait for a free global queue slot.
+  // Wait for a free global queue slot (self-healing stale counters).
   const deadline = now + holdMs;
   while (Date.now() < deadline) {
     const q = await getQueue();
+    // If the counter is stale (no release in 60s), assume dead holders and reset.
+    if ((q.updatedAt || 0) < Date.now() - 60000) {
+      q.count = 0;
+    }
     if (q.count < cfg.queueMax) {
       q.count += 1;
       q.updatedAt = Date.now();
@@ -184,13 +190,19 @@ async function acquireLocalSlot(username, holdMs = 50000) {
       await saveUserLimits(username, rec);
       const release = async () => {
         const cur = await getQueue();
-        cur.count = Math.max(0, cur.count - 1);
+        if ((cur.updatedAt || 0) < Date.now() - 60000) cur.count = 0;
+        else cur.count = Math.max(0, cur.count - 1);
         cur.updatedAt = Date.now();
         await limitsStore().setJSON("active_users", cur);
       };
       return { ok: true, rec, release };
     }
     await new Promise((r) => setTimeout(r, 1000));
+  }
+  // Final self-heal so the next caller isn't permanently blocked.
+  const q = await getQueue();
+  if ((q.updatedAt || 0) < Date.now() - 60000) {
+    await limitsStore().setJSON("active_users", { count: 0, updatedAt: Date.now() });
   }
   return json(503, { error: "All GPU slots are busy right now. You're in the queue — try again in a moment." });
 }
