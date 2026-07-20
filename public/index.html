@@ -24,16 +24,17 @@
 <!-- LOGGED OUT: landing -->
 <div class="wrap" id="landing" style="display:none;">
   <section class="hero">
-    <div class="eyebrow">free public AI · community powered</div>
-    <h1>KurwaAI.<br>Your AI stack, <span class="accent">free for everyone.</span></h1>
-    <p class="sub">A free AI service running on community hardware — chat via OpenRouter's free models, no API keys, no catch. Sign up and start chatting in seconds.</p>
-    <div class="hero-ctas">
+    <div class="orb"></div>
+    <div class="eyebrow reveal" style="--d:0s">free public AI · community powered</div>
+    <h1 class="reveal" style="--d:.08s">KurwaAI.<br>Your AI stack, <span class="accent">free for everyone.</span></h1>
+    <p class="sub reveal" style="--d:.16s">A free AI service running on community hardware — chat via OpenRouter's free models, no API keys, no catch. Sign up and start chatting in seconds.</p>
+    <div class="hero-ctas reveal" style="--d:.24s">
       <button class="btn btn-primary" id="cta-register">Create free account</button>
       <button class="btn btn-ghost" id="cta-login">I already have one</button>
     </div>
 
     <div class="plans">
-      <div class="plan">
+      <div class="plan reveal" style="--d:.32s">
         <h3>Free</h3>
         <div class="price">$0</div>
         <ul>
@@ -43,7 +44,7 @@
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>30 requests / minute</li>
         </ul>
       </div>
-      <div class="plan">
+      <div class="plan reveal" style="--d:.4s">
         <h3>Plus</h3>
         <div class="price">Claude Haiku</div>
         <ul>
@@ -53,7 +54,8 @@
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>5M token window (5h)</li>
         </ul>
       </div>
-      <div class="plan featured">
+      <div class="plan featured reveal" style="--d:.48s">
+        <span class="popular-tag">POPULAR</span>
         <h3>Max</h3>
         <div class="price">All Claude models</div>
         <ul>
